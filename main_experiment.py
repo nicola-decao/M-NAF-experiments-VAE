@@ -60,7 +60,7 @@ parser.add_argument('-es', '--early_stopping_epochs', type=int, default=100, met
 
 parser.add_argument('-bs', '--batch_size', type=int, default=100, metavar='BATCH_SIZE',
                     help='input batch size for training (default: 100)')
-parser.add_argument('-lr', '--learning_rate', type=float, default=0.0005, metavar='LEARNING_RATE',
+parser.add_argument('-lr', '--learning_rate', type=float, default=2e-3, metavar='LEARNING_RATE',
                     help='learning rate')
 
 parser.add_argument('-w', '--warmup', type=int, default=100, metavar='N',
@@ -258,10 +258,11 @@ def run(args, kwargs):
 
     test_score_file = snap_dir + 'test_scores.txt'
 
-    with open(test_score_file, 'a') as ff:
-        print(args, file=ff)
-        print('Stopped after %d epochs' % epoch, file=ff)
-        print('Average train time per epoch: %.2f +/- %.2f' % (mean_train_time, std_train_time), file=ff)
+    if args.epochs > 0:
+        with open(test_score_file, 'a') as ff:
+            print(args, file=ff)
+            print('Stopped after %d epochs' % epoch, file=ff)
+            print('Average train time per epoch: %.2f +/- %.2f' % (mean_train_time, std_train_time), file=ff)
 
     final_model = model
     model.load_state_dict(torch.load(snap_dir + args.flow + '.model'))
