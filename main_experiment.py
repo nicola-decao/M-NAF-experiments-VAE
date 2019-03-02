@@ -10,6 +10,8 @@ import torch.optim as optim
 import numpy as np
 import math
 import random
+from adam import Adam
+from adamax import Adamax
 
 import os
 
@@ -68,7 +70,7 @@ parser.add_argument('--max_beta', type=float, default=1., metavar='MB',
 parser.add_argument('--min_beta', type=float, default=0.0, metavar='MB',
                     help='min beta for warm-up')
 parser.add_argument('-f', '--flow', type=str, default='no_flow', choices=['planar', 'iaf', 'householder', 'orthogonal',
-                                                                          'triangular', 'no_flow'],
+                                                                          'triangular', 'no_flow', 'mnaf'],
                     help="""Type of flows to use, no flows can also be selected""")
 parser.add_argument('-nf', '--num_flows', type=int, default=4,
                     metavar='NUM_FLOWS', help='Number of flow layers, ignored in absence of flows')
@@ -82,6 +84,13 @@ parser.add_argument('-mhs', '--made_h_size', type=int, default=320,
                     metavar='MADEHSIZE', help='Width of mades for iaf. Ignored for all other flows.')
 parser.add_argument('--z_size', type=int, default=64, metavar='ZSIZE',
                     help='how many stochastic hidden units')
+parser.add_argument('-hdim', '--hidden_dim', type=int, default=4,
+                    metavar='HDIM', help='')
+parser.add_argument('-lys', '--layers', type=int, default=0,
+                    metavar='LAYERS', help='')
+parser.add_argument('-plk', '--polyak', type=float, default=0,
+                    metavar='POLYAK', help='')
+
 # gpu/cpu
 parser.add_argument('--gpu_num', type=int, default=0, metavar='GPU', help='choose GPU to run on.')
 
@@ -125,6 +134,8 @@ def run(args, kwargs):
         snap_dir = snap_dir + '_num_householder_' + str(args.num_householder)
     elif args.flow == 'iaf':
         snap_dir = snap_dir + '_madehsize_' + str(args.made_h_size)
+    elif args.flow == 'mnaf':
+        snap_dir = snap_dir + '_hdim_' + str(args.hidden_dim) + '_layers_' + str(args.layers) + '_polyak_'  + str(args.polyak)
 
     snap_dir = snap_dir + '__' + args.model_signature + '/'
 
@@ -158,6 +169,8 @@ def run(args, kwargs):
         model = VAE.HouseholderSylvesterVAE(args)
     elif args.flow == 'triangular':
         model = VAE.TriangularSylvesterVAE(args)
+    elif args.flow == 'mnaf':
+        model = VAE.MNAFVAE(args)
     else:
         raise ValueError('Invalid flow choice')
 
@@ -167,7 +180,10 @@ def run(args, kwargs):
 
     print(model)
 
-    optimizer = optim.Adamax(model.parameters(), lr=args.learning_rate, eps=1.e-7)
+    optimizer = Adamax(model.parameters(), lr=args.learning_rate, eps=1e-7, polyak=args.polyak)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.75,
+                                                     patience=10, min_lr=1e-4, 
+                                                     verbose=True)
 
     # ==================================================================================================================
     # TRAINING
@@ -191,9 +207,13 @@ def run(args, kwargs):
         train_times.append(time.time()-t_start)
         print('One training epoch took %.2f seconds' % (time.time()-t_start))
 
+        optimizer.swap()
         v_loss, v_bpd = evaluate(val_loader, model, args, epoch=epoch)
+        optimizer.swap()
 
         val_loss.append(v_loss)
+        if epoch >= args.warmup:
+            scheduler.step(v_loss)
 
         # early-stopping
         if v_loss < best_loss:
@@ -202,8 +222,8 @@ def run(args, kwargs):
             if args.input_type != 'binary':
                 best_bpd = v_bpd
             print('->model saved<-')
-            torch.save(model, snap_dir + args.flow + '.model')
-            # torch.save(model, snap_dir + args.flow + '_' + args.architecture + '.model')
+            torch.save(model.state_dict(), snap_dir + args.flow + '.model')
+            torch.save(optimizer.state_dict(), snap_dir + args.flow + '.optimizer')
 
         elif (args.early_stopping_epochs > 0) and (epoch >= args.warmup):
             e += 1
@@ -220,16 +240,17 @@ def run(args, kwargs):
         if math.isnan(v_loss):
             raise ValueError('NaN encountered!')
 
-    train_loss = np.hstack(train_loss)
-    val_loss = np.array(val_loss)
+    if args.epochs > 0:
+        train_loss = np.hstack(train_loss)
+        val_loss = np.array(val_loss)
 
-    plot_training_curve(train_loss, val_loss, fname=snap_dir + '/training_curve_%s.pdf' % args.flow)
+        plot_training_curve(train_loss, val_loss, fname=snap_dir + '/training_curve_%s.pdf' % args.flow)
 
-    # training time per epoch
-    train_times = np.array(train_times)
-    mean_train_time = np.mean(train_times)
-    std_train_time = np.std(train_times, ddof=1)
-    print('Average train time per epoch: %.2f +/- %.2f' % (mean_train_time, std_train_time))
+        # training time per epoch
+        train_times = np.array(train_times)
+        mean_train_time = np.mean(train_times)
+        std_train_time = np.std(train_times, ddof=1)
+        print('Average train time per epoch: %.2f +/- %.2f' % (mean_train_time, std_train_time))
 
     # ==================================================================================================================
     # EVALUATION
@@ -237,40 +258,29 @@ def run(args, kwargs):
 
     test_score_file = snap_dir + 'test_scores.txt'
 
-    with open('experiment_log.txt', 'a') as ff:
+    with open(test_score_file, 'a') as ff:
         print(args, file=ff)
         print('Stopped after %d epochs' % epoch, file=ff)
         print('Average train time per epoch: %.2f +/- %.2f' % (mean_train_time, std_train_time), file=ff)
 
-    final_model = torch.load(snap_dir + args.flow + '.model')
+    final_model = model
+    model.load_state_dict(torch.load(snap_dir + args.flow + '.model'))
+    optimizer.load_state_dict(torch.load(snap_dir + args.flow + '.optimizer'))
+    optimizer.swap()
 
-    if args.testing:
-        validation_loss, validation_bpd = evaluate(val_loader, final_model, args)
-        test_loss, test_bpd = evaluate(test_loader, final_model, args, testing=True)
+    validation_loss, validation_bpd = evaluate(val_loader, final_model, args, file=test_score_file)
+    test_loss, test_bpd = evaluate(test_loader, final_model, args, testing=True, file=test_score_file)
 
-        with open('experiment_log.txt', 'a') as ff:
+    with open(test_score_file, 'a') as ff:
+        print('FINAL EVALUATION ON VALIDATION SET\n'
+              'ELBO (VAL): {:.4f}\n'.format(validation_loss), file=ff)
+        print('FINAL EVALUATION ON TEST SET\n'
+              'NLL (TEST): {:.4f}\n'.format(test_loss), file=ff)
+        if args.input_type != 'binary':
             print('FINAL EVALUATION ON VALIDATION SET\n'
-                  'ELBO (VAL): {:.4f}\n'.format(validation_loss), file=ff)
+                  'ELBO (VAL) BPD : {:.4f}\n'.format(validation_bpd), file=ff)
             print('FINAL EVALUATION ON TEST SET\n'
-                  'NLL (TEST): {:.4f}\n'.format(test_loss), file=ff)
-            if args.input_type != 'binary':
-                print('FINAL EVALUATION ON VALIDATION SET\n'
-                      'ELBO (VAL) BPD : {:.4f}\n'.format(validation_bpd), file=ff)
-                print('FINAL EVALUATION ON TEST SET\n'
-                      'NLL (TEST) BPD: {:.4f}\n'.format(test_bpd), file=ff)
-
-
-    else:
-        validation_loss, validation_bpd = evaluate(val_loader, final_model, args)
-        # save the test score in case you want to look it up later.
-        _, _ = evaluate(test_loader, final_model, args, testing=True, file=test_score_file)
-
-        with open('experiment_log.txt', 'a') as ff:
-            print('FINAL EVALUATION ON VALIDATION SET\n'
-                  'ELBO (VALIDATION): {:.4f}\n'.format(validation_loss), file=ff)
-            if args.input_type != 'binary':
-                print('FINAL EVALUATION ON VALIDATION SET\n'
-                      'ELBO (VAL) BPD : {:.4f}\n'.format(validation_bpd), file=ff)
+                  'NLL (TEST) BPD: {:.4f}\n'.format(test_bpd), file=ff)
 
 
 if __name__ == "__main__":

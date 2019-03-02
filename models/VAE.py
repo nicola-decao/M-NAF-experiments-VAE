@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import models.flows as flows
 from models.layers import GatedConv2d, GatedConvTranspose2d
+from blocks import Tanh, MaskedConditionalWeight, ConditionalSequential, ConditionalNNFlow, Permutation
 
 
 class VAE(nn.Module):
@@ -180,6 +181,77 @@ class VAE(nn.Module):
         x_mean = self.decode(z)
 
         return x_mean, z_mu, z_var, self.log_det_j, z, z
+
+    
+class MNAFVAE(VAE):
+
+    def __init__(self, args):
+        super(MNAFVAE, self).__init__(args)
+
+        self.num_flows = args.num_flows
+        self.layers = args.layers
+        self.hdim = args.hidden_dim
+        
+        # Initialize log-det-jacobian to zero
+        self.log_det_j = 0.
+
+        self.flows = []
+        for _ in range(self.num_flows):
+            layers = [[Tanh(),
+                       MaskedConditionalWeight(self.z_size * self.hdim, self.z_size * self.hdim, dim=self.z_size)]
+                      for _ in range(self.layers)]
+            
+            layers = [MaskedConditionalWeight(self.z_size, self.z_size * self.hdim, dim=self.z_size)] + \
+                [f for e in layers for f in e] + \
+                [Tanh(), MaskedConditionalWeight(self.z_size * self.hdim, self.z_size, dim=self.z_size)]
+            
+            self.flows.append(ConditionalSequential(
+                ConditionalNNFlow(*layers),
+                Permutation(self.z_size, list(reversed(range(self.z_size))))
+            ))
+            
+        self.flows = nn.ModuleList(self.flows)
+
+        self.conditions = nn.Linear(self.q_z_nn_output_dim,
+                                    self.num_flows * 3 * ((self.layers + 1) * self.z_size * self.hdim + self.z_size))
+
+        self.splits = torch.Tensor([0] + [module.in_features +  module.out_features + module.out_features
+                                          for module in self.flows[0][0] 
+                                          if isinstance(module, MaskedConditionalWeight)]).cumsum(-1).long()
+        
+    def encode(self, x):
+
+        batch_size = x.size(0)
+
+        h = self.q_z_nn(x)
+        h = h.view(-1, self.q_z_nn_output_dim)
+        mean_z = self.q_z_mean(h)
+        var_z = self.q_z_var(h)
+
+        conditions = self.conditions(h)
+        
+        return mean_z, var_z, conditions
+
+    def forward(self, x):
+
+        self.log_det_j = 0.
+
+        z_mu, z_var, conditions = self.encode(x)
+        conditions = conditions.view(-1, self.num_flows, 3 * ((self.layers + 1) * self.z_size * self.hdim + self.z_size))
+        
+        # Sample z_0
+        z = [self.reparameterize(z_mu, z_var)]
+
+        # Normalizing flows
+        for k in range(self.num_flows):
+            splits = [conditions[:,k,s:e] for s, e in zip(self.splits[:-1], self.splits[1:])]
+            z_k = self.flows[k]([splits,], z[k])
+            z.append(z_k)
+            self.log_det_j += self.flows[k].logdetj()
+
+        x_mean = self.decode(z[-1])
+
+        return x_mean, z_mu, z_var, self.log_det_j, z[0], z[-1]
 
 
 class PlanarVAE(VAE):
