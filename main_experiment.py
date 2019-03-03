@@ -60,7 +60,7 @@ parser.add_argument('-es', '--early_stopping_epochs', type=int, default=100, met
 
 parser.add_argument('-bs', '--batch_size', type=int, default=100, metavar='BATCH_SIZE',
                     help='input batch size for training (default: 100)')
-parser.add_argument('-lr', '--learning_rate', type=float, default=2e-3, metavar='LEARNING_RATE',
+parser.add_argument('-lr', '--learning_rate', type=float, default=0.0005, metavar='LEARNING_RATE',
                     help='learning rate')
 
 parser.add_argument('-w', '--warmup', type=int, default=100, metavar='N',
