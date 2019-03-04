@@ -227,7 +227,7 @@ class Tanh(torch.nn.Module):
 class HouseholderLinear(torch.nn.Module):
     
     def __init__(self, in_features, k=None, bias=True):
-        super().__init__()
+        super(HouseholderLinear, self).__init__()
         k = k if k is not None else in_features
         self.in_features, self.k = in_features, k
         self.weight_ = torch.nn.Parameter(torch.randn(k, in_features, 1))
@@ -252,7 +252,7 @@ class HouseholderLinear(torch.nn.Module):
     
 class ProjectedLinear(torch.nn.Module):
     def __init__(self, in_features, bias=True, diag=True):
-        super().__init__()
+        super(ProjectedLinear, self).__init__()
         self.in_features = in_features
         self.weight_ = torch.nn.Parameter(torch.randn(in_features, in_features))
         self.weight_diag = torch.nn.Parameter(torch.rand(in_features, 1).log()) if diag else 1
