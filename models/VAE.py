@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import models.flows as flows
 from models.layers import GatedConv2d, GatedConvTranspose2d
-from blocks import Tanh, MaskedConditionalWeight, ConditionalSequential, ConditionalNNFlow, Permutation, HouseholderLinear
+from blocks import Tanh, MaskedConditionalWeight, ConditionalSequential, ConditionalNNFlow, Permutation, ConditionalResNNFlow
 
 
 class VAE(nn.Module):
@@ -196,7 +196,7 @@ class MNAFVAE(VAE):
         self.log_det_j = 0.
 
         self.flows = []
-        for _ in range(self.num_flows):
+        for k in range(self.num_flows):
             layers = [[Tanh(),
                        MaskedConditionalWeight(self.z_size * self.hdim, self.z_size * self.hdim, dim=self.z_size)]
                       for _ in range(self.layers)]
@@ -206,7 +206,7 @@ class MNAFVAE(VAE):
                 [Tanh(), MaskedConditionalWeight(self.z_size * self.hdim, self.z_size, dim=self.z_size)]
             
             self.flows.append(ConditionalSequential(
-                ConditionalNNFlow(*layers),
+                ConditionalResNNFlow(*layers) if k < self.num_flows - 1 else ConditionalNNFlow(*layers),
                 Permutation(self.z_size, list(reversed(range(self.z_size))))
             ))
             
