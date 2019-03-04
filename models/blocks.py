@@ -240,7 +240,7 @@ class HouseholderLinear(torch.nn.Module):
             return torch.chain_matmul(*torch.eye(self.in_features).to(t.device) - t)
         except:
             out = torch.eye(self.in_features).to(t.device)
-            for m in [*(torch.eye(self.in_features).to(t.device) - t)]:
+            for m in [torch.eye(self.in_features).to(t.device) - t]:
                 out = torch.matmul(out, m)
 
             return out
