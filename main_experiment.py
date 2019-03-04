@@ -180,7 +180,8 @@ def run(args, kwargs):
 
     print(model)
 
-    optimizer = Adamax(model.parameters(), lr=args.learning_rate, eps=1e-7, polyak=args.polyak)
+    optimizer = Adam(model.parameters(), lr=args.learning_rate, eps=1e-7, polyak=args.polyak, amsgrad=True)
+#     optimizer = Adamax(model.parameters(), lr=args.learning_rate, eps=1e-7, polyak=args.polyak)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.75,
                                                      patience=10, min_lr=1e-4, 
                                                      verbose=True)

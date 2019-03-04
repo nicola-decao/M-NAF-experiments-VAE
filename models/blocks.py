@@ -28,6 +28,22 @@ class NNFlow(torch.nn.Sequential):
         return inputs.squeeze().sum(-1)
     
     
+class ResNNFlow(torch.nn.Sequential):
+    
+    def forward(self, inputs):
+        or_inputs = inputs
+        for module in self._modules.values():
+            inputs = module(inputs)
+        return inputs + or_inputs
+    
+    def logdetj(self, inputs=None):
+        for module in self._modules.values():
+            inputs = module.log_diag_jacobian(inputs)
+            inputs = inputs if len(inputs.shape) == 4 else inputs.view(inputs.shape + [1, 1])
+            
+        return logsumexp(torch.stack((inputs.squeeze(), torch.zeros_like(inputs.squeeze())), -1), -1).sum(-1)
+    
+    
 class Permutation(torch.nn.Module):
     
     def __init__(self, in_features, p=None):
@@ -207,4 +223,53 @@ class Tanh(torch.nn.Module):
     def logdetj(self):
         g = - 2 * (self.tmp_inputs - math.log(2) + torch.nn.functional.softplus(- 2 * self.tmp_inputs))
         return g.sum(-1)
+    
+class HouseholderLinear(torch.nn.Module):
+    
+    def __init__(self, in_features, k=None, bias=True):
+        super().__init__()
+        k = k if k is not None else in_features
+        self.in_features, self.k = in_features, k
+        self.weight_ = torch.nn.Parameter(torch.randn(k, in_features, 1))
+        self.weight_diag = torch.nn.Parameter(torch.rand(in_features, 1).log())
+        self.bias = torch.nn.Parameter(torch.zeros(in_features)) if bias else 0
+
+    @property
+    def weight_orth(self):
+        t = 2 * (self.weight_ * self.weight_.transpose(-1, -2)) / (self.weight_ ** 2).sum((-1, -2), keepdim=True)
+        return torch.chain_matmul(*torch.eye(self.in_features).to(t.device) - t)
+
+    @property
+    def weight(self):
+        return self.weight_diag.exp() * self.weight_orth
+
+    def forward(self, inputs):
+        return inputs @ self.weight + self.bias
+
+    def logdetj(self):
+        return self.weight_diag.sum()
+    
+    
+class ProjectedLinear(torch.nn.Module):
+    def __init__(self, in_features, bias=True, diag=True):
+        super().__init__()
+        self.in_features = in_features
+        self.weight_ = torch.nn.Parameter(torch.randn(in_features, in_features))
+        self.weight_diag = torch.nn.Parameter(torch.rand(in_features, 1).log()) if diag else 1
+        self.bias = torch.nn.Parameter(torch.zeros(in_features)) if bias else 0
+
+    @property
+    def weight_orth(self):
+        u, _, v = torch.svd(self.weight_)
+        return u @ v
+
+    @property
+    def weight(self):
+        return self.weight_diag.exp() * self.weight_orth
+
+    def forward(self, inputs):
+        return inputs @ self.weight + self.bias
+
+    def logdetj(self):
+        return self.weight_diag.sum() if not isinstance(self.weight_diag, int) else 0
     
