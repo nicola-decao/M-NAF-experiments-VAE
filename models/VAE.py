@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import models.flows as flows
 from models.layers import GatedConv2d, GatedConvTranspose2d
-from blocks import Tanh, MaskedConditionalWeight, ConditionalSequential, ConditionalNNFlow, Permutation
+from blocks import Tanh, MaskedConditionalWeight, ConditionalSequential, ConditionalNNFlow, Permutation, HouseholderLinear
 
 
 class VAE(nn.Module):
