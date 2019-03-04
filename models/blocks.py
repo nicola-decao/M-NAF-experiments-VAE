@@ -41,8 +41,8 @@ class ResNNFlow(torch.nn.Sequential):
             inputs = module.log_diag_jacobian(inputs)
             inputs = inputs if len(inputs.shape) == 4 else inputs.view(inputs.shape + [1, 1])
             
-#         return logsumexp(torch.stack((inputs.squeeze(), torch.zeros_like(inputs.squeeze())), -1), -1).sum(-1)
-        return torch.nn.functional.softplus(inputs.squeeze()).sum(-1)
+        return logsumexp(torch.stack((inputs.squeeze(), torch.zeros_like(inputs.squeeze())), -1), -1).sum(-1)
+#         return torch.nn.functional.softplus(inputs.squeeze()).sum(-1)
     
 class ConditionalResNNFlow(NNFlow):
     
@@ -51,8 +51,8 @@ class ConditionalResNNFlow(NNFlow):
             inputs = module.log_diag_jacobian(inputs)
             inputs = inputs if len(inputs.shape) == 4 else inputs.view(inputs.shape + [1, 1])
             
-#         return logsumexp(torch.stack((inputs.squeeze(), torch.zeros_like(inputs.squeeze())), -1), -1).sum(-1)
-        return torch.nn.functional.softplus(inputs.squeeze()).sum(-1)
+        return logsumexp(torch.stack((inputs.squeeze(), torch.zeros_like(inputs.squeeze())), -1), -1).sum(-1)
+#         return torch.nn.functional.softplus(inputs.squeeze()).sum(-1)
     
     def forward(self, conditions, inputs):
         i = 0
