@@ -236,7 +236,7 @@ class HouseholderLinear(torch.nn.Module):
 
     @property
     def weight_orth(self):
-        t = 2 * (self.weight_ * self.weight_.transpose(-1, -2)) / (self.weight_ ** 2).sum((-1, -2), keepdim=True)
+        t = 2 * (self.weight_ * self.weight_.transpose(-1, -2)) / (self.weight_ ** 2).sum(-1, keepdim=True).sum(-2, keepdim=True)
         return torch.chain_matmul(*torch.eye(self.in_features).to(t.device) - t)
 
     @property
