@@ -244,7 +244,7 @@ class HouseholderLinear(torch.nn.Module):
         return self.weight_diag.exp() * self.weight_orth
 
     def forward(self, inputs):
-        return inputs @ self.weight + self.bias
+        return torch.matmul(inputs, self.weight) + self.bias
 
     def logdetj(self):
         return self.weight_diag.sum()
@@ -268,7 +268,7 @@ class ProjectedLinear(torch.nn.Module):
         return self.weight_diag.exp() * self.weight_orth
 
     def forward(self, inputs):
-        return inputs @ self.weight + self.bias
+        return torch.matmul(inputs, self.weight) + self.bias
 
     def logdetj(self):
         return self.weight_diag.sum() if not isinstance(self.weight_diag, int) else 0
