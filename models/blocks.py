@@ -261,7 +261,7 @@ class ProjectedLinear(torch.nn.Module):
     @property
     def weight_orth(self):
         u, _, v = torch.svd(self.weight_)
-        return u @ v
+        return torch.matmul(u, v)
 
     @property
     def weight(self):
