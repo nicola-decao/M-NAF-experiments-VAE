@@ -177,7 +177,7 @@ class ConditionalSequential(torch.nn.Sequential):
     def forward(self, conditions, inputs):
         i = 0
         for module in self._modules.values():
-            if isinstance(module, ConditionalNNFlow):
+            if isinstance(module, ConditionalNNFlow) or isinstance(module, ConditionalResNNFlow):
                 inputs = module(conditions[i], inputs)
                 i += 1
             else:
