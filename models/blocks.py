@@ -234,17 +234,15 @@ class HouseholderLinear(torch.nn.Module):
         self.weight_diag = torch.nn.Parameter(torch.rand(in_features, 1).log())
         self.bias = torch.nn.Parameter(torch.zeros(in_features)) if bias else 0
 
-    @property
     def weight_orth(self):
         t = 2 * (self.weight_ * self.weight_.transpose(-1, -2)) / (self.weight_ ** 2).sum(-1, keepdim=True).sum(-2, keepdim=True)
         return torch.chain_matmul(*torch.eye(self.in_features).to(t.device) - t)
 
-    @property
     def weight(self):
-        return self.weight_diag.exp() * self.weight_orth
+        return self.weight_diag.exp() * self.weight_orth()
 
     def forward(self, inputs):
-        return torch.matmul(inputs, self.weight) + self.bias
+        return torch.matmul(inputs, self.weight()) + self.bias
 
     def logdetj(self):
         return self.weight_diag.sum()
@@ -258,17 +256,15 @@ class ProjectedLinear(torch.nn.Module):
         self.weight_diag = torch.nn.Parameter(torch.rand(in_features, 1).log()) if diag else 1
         self.bias = torch.nn.Parameter(torch.zeros(in_features)) if bias else 0
 
-    @property
     def weight_orth(self):
         u, _, v = torch.svd(self.weight_)
         return torch.matmul(u, v)
 
-    @property
     def weight(self):
-        return self.weight_diag.exp() * self.weight_orth
+        return self.weight_diag.exp() * self.weight_orth()
 
     def forward(self, inputs):
-        return torch.matmul(inputs, self.weight) + self.bias
+        return torch.matmul(inputs, self.weight()) + self.bias
 
     def logdetj(self):
         return self.weight_diag.sum() if not isinstance(self.weight_diag, int) else 0
