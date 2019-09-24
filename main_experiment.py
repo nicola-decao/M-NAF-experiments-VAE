@@ -10,8 +10,6 @@ import torch.optim as optim
 import numpy as np
 import math
 import random
-from adam import Adam
-from adamax import Adamax
 
 import os
 
@@ -72,15 +70,15 @@ parser.add_argument('--min_beta', type=float, default=0.0, metavar='MB',
 parser.add_argument('-f', '--flow', type=str, default='no_flow', choices=['planar', 'iaf', 'householder', 'orthogonal',
                                                                           'triangular', 'no_flow', 'mnaf'],
                     help="""Type of flows to use, no flows can also be selected""")
-parser.add_argument('-nf', '--num_flows', type=int, default=4,
+parser.add_argument('-nf', '--num_flows', type=int, default=16,
                     metavar='NUM_FLOWS', help='Number of flow layers, ignored in absence of flows')
-parser.add_argument('-nv', '--num_ortho_vecs', type=int, default=8, metavar='NUM_ORTHO_VECS',
+parser.add_argument('-nv', '--num_ortho_vecs', type=int, default=32, metavar='NUM_ORTHO_VECS',
                     help=""" For orthogonal flow: How orthogonal vectors per flow do you need.
                     Ignored for other flow types.""")
 parser.add_argument('-nh', '--num_householder', type=int, default=8, metavar='NUM_HOUSEHOLDERS',
                     help=""" For Householder Sylvester flow: Number of Householder matrices per flow.
                     Ignored for other flow types.""")
-parser.add_argument('-mhs', '--made_h_size', type=int, default=320,
+parser.add_argument('-mhs', '--made_h_size', type=int, default=1280,
                     metavar='MADEHSIZE', help='Width of mades for iaf. Ignored for all other flows.')
 parser.add_argument('--z_size', type=int, default=64, metavar='ZSIZE',
                     help='how many stochastic hidden units')
@@ -179,11 +177,45 @@ def run(args, kwargs):
         model.cuda()
 
     print(model)
+    
+#     IAF
+#     for m in (model.h_context,  amm=1280, p=328,960
+#               model.flow):      amm=0, p=30,189,568
+#         print(m)
+#         print('Parameters: {}'.format(sum(p.numel() for p in m.parameters())))
+# amm=1280, p=30,518,528
 
-    optimizer = Adam(model.parameters(), lr=args.learning_rate, eps=1e-7, polyak=args.polyak, amsgrad=True)
-#     optimizer = Adamax(model.parameters(), lr=args.learning_rate, eps=1e-7, polyak=args.polyak)
+#     ORTH
+#     for m in (model.amor_d,      amm=16,384, p=4,210,688
+#               model.amor_diag1,  amm=512, p=131,584
+#               model.amor_diag2,  amm=512, p=131,584
+#               model.amor_q,      amm=32,768, p=8,421,376
+#               model.amor_b):     amm=512, p=131,584
+#         print(m)
+#         print('Parameters: {}'.format(sum(p.numel() for p in m.parameters())))
+# amm=50,688, p=13,026,816
+
+#     HOUSE
+#     for m in (model.amor_d,      #amm=65,536, p=16,842,752
+#               model.amor_diag1,  #amm=1024, p=263,168
+#               model.amor_diag2,  #amm=1024, p=263,168
+#               model.amor_q,      #amm=8,192, p=2,105,344
+#               model.amor_b):     #amm=1024, p=263,168
+#         print(m)
+#         print('Parameters: {}'.format(sum(p.numel() for p in m.parameters())))
+# amm=76,800, p=19,737,600
+
+#     MNAF
+#     for m in (model.flows,        #amm=0, p=138,240
+#               model.conditions):  #amm=7,680, p=1,973,760
+#         print(m)
+#         print('Parameters: {}'.format(sum(int((p != 0).long().sum())
+#                                           if len(p.shape) > 1 else p.numel() for p in m.parameters())))
+# amm=7,680, p=2,112,000 (=6.16x orth, =9.35x house, =14.45x IAF)
+
+    optimizer = torch.optim.Adamax(model.parameters(), lr=args.learning_rate, eps=1e-7)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.75,
-                                                     patience=10, min_lr=1e-4, 
+                                                     patience=30, min_lr=1e-4, 
                                                      verbose=True)
 
     # ==================================================================================================================
@@ -208,9 +240,7 @@ def run(args, kwargs):
         train_times.append(time.time()-t_start)
         print('One training epoch took %.2f seconds' % (time.time()-t_start))
 
-        optimizer.swap()
         v_loss, v_bpd = evaluate(val_loader, model, args, epoch=epoch)
-        optimizer.swap()
 
         val_loss.append(v_loss)
         if epoch >= args.warmup:
@@ -265,13 +295,11 @@ def run(args, kwargs):
             print('Stopped after %d epochs' % epoch, file=ff)
             print('Average train time per epoch: %.2f +/- %.2f' % (mean_train_time, std_train_time), file=ff)
 
-    final_model = model
     model.load_state_dict(torch.load(snap_dir + args.flow + '.model'))
     optimizer.load_state_dict(torch.load(snap_dir + args.flow + '.optimizer'))
-    optimizer.swap()
 
-    validation_loss, validation_bpd = evaluate(val_loader, final_model, args, file=test_score_file)
-    test_loss, test_bpd = evaluate(test_loader, final_model, args, testing=True, file=test_score_file)
+    validation_loss, validation_bpd = evaluate(val_loader, model, args, file=test_score_file)
+    test_loss, test_bpd = evaluate(test_loader, model, args, testing=True, file=test_score_file)
 
     with open(test_score_file, 'a') as ff:
         print('FINAL EVALUATION ON VALIDATION SET\n'
